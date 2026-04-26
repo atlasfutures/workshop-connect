@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workshop-connect"
+version = "0.1.0"
+description = "Python SDK for Workshop.ai connectors — execute actions and manage triggers"
+authors = [{ name = "Atlas Futures", email = "hello@workshop.ai" }]
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+keywords = [
+    "workshop",
+    "connector",
+    "api",
+    "sdk",
+    "composio",
+    "automation",
+    "integration",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+cli = [
+    "click>=8.1.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=1.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.8",
+]
+
+[project.urls]
+Homepage = "https://workshop.ai"
+Repository = "https://github.com/atlasfutures/workshop-connect"
+Issues = "https://github.com/atlasfutures/workshop-connect/issues"
+
+[project.scripts]
+wconnect = "workshop_connect.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["workshop_connect*"]
+
+[tool.setuptools.package-data]
+"workshop_connect" = ["_catalog.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [".venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.uv]
+package = true
