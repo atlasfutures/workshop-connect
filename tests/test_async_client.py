@@ -128,12 +128,25 @@ class TestAsyncTriggers:
 
     async def test_trigger_list(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            assert "/v3/triggers/active_triggers" in str(request.url)
-            return httpx.Response(200, json={"triggers": [{"id": "t_001"}]})
+            assert "/v3/trigger_instances/active" in str(request.url)
+            return httpx.Response(200, json={"trigger_instances": [{"id": "t_001"}]})
 
         c = self._make_client(handler)
         result = await c.trigger_list()
         assert len(result) == 1
+        await c.close()
+
+    async def test_trigger_disable(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.method == "PATCH"
+            assert "/v3/trigger_instances/manage/t_001" in str(request.url)
+            body = json.loads(request.content)
+            assert body["enabled"] is False
+            return httpx.Response(200, json={"status": "disabled"})
+
+        c = self._make_client(handler)
+        result = await c.trigger_disable("t_001")
+        assert result["status"] == "disabled"
         await c.close()
 
     async def test_trigger_delete(self) -> None:

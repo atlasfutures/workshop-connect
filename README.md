@@ -8,12 +8,6 @@ Python SDK for [Workshop.ai](https://workshop.ai) connectors — execute actions
 pip install workshop-connect
 ```
 
-For the CLI tool:
-
-```bash
-pip install workshop-connect[cli]
-```
-
 ## Quick Start
 
 ### Python SDK
@@ -61,7 +55,7 @@ Each connected account injects three environment variables:
 <PREFIX>_COMPOSIO_PROXY_URL              # Workshop proxy URL
 <PREFIX>_COMPOSIO_CONNECTED_ACCOUNT_ID   # Connected account ID
 <PREFIX>_WORKSHOP_API_KEY                # Bearer token
-<PREFIX>_COMPOSIO_APP_NAME               # Toolkit name (e.g. "gmail")
+<PREFIX>_COMPOSIO_APP_NAME               # Toolkit name (optional, for disambiguation)
 ```
 
 ## License

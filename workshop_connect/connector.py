@@ -48,7 +48,7 @@ class Connector:
         Parameters
         ----------
         prefix:
-            Explicit 6-char prefix (e.g. ``"MYSLCK"``).  If given,
+            Explicit prefix (e.g. ``"MYSLCK"``).  If given,
             looks up ``<PREFIX>_COMPOSIO_PROXY_URL`` etc. directly.
         toolkit:
             Composio toolkit slug (e.g. ``"gmail"``, ``"slack"``).

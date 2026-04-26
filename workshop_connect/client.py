@@ -7,7 +7,6 @@ for proxy authentication.
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 import httpx
@@ -18,10 +17,6 @@ from .errors import ActionError, AuthError
 _USER_AGENT = "workshop-connect/0.1"
 _TIMEOUT = 60.0
 _HTTP_ERROR_THRESHOLD = 400
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
-)
 
 
 class ConnectorClient:

@@ -7,7 +7,6 @@ non-blocking I/O — suitable for FastAPI and other async frameworks.
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 import httpx
@@ -18,10 +17,6 @@ from .errors import ActionError, AuthError
 _USER_AGENT = "workshop-connect/0.1"
 _TIMEOUT = 60.0
 _HTTP_ERROR_THRESHOLD = 400
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
-)
 
 
 class AsyncConnectorClient:
@@ -162,20 +157,21 @@ class AsyncConnectorClient:
     async def trigger_list(self) -> list[dict[str, Any]]:
         """List active triggers for this connected account."""
         await self._ensure_account_details()
-        url = f"{self._proxy_url}/v3/triggers/active_triggers"
+        url = f"{self._proxy_url}/v3/trigger_instances/active"
         params = {"connectedAccountId": self._resolved_uuid or self._connected_account_id}
         resp = await self._http.get(url, params=params)
         data = self._handle_response(resp, "trigger_list")
-        if isinstance(data, dict) and "triggers" in data:
-            return data["triggers"]
+        if isinstance(data, dict) and "trigger_instances" in data:
+            instances = data["trigger_instances"]
+            return instances if isinstance(instances, list) else []
         return data if isinstance(data, list) else []
 
     async def trigger_disable(self, trigger_id: str) -> dict[str, Any]:
         """Disable (pause) a trigger instance."""
         await self._ensure_account_details()
-        url = f"{self._proxy_url}/v3/triggers/disable/{trigger_id}"
-        body = {"connectedAccountId": self._resolved_uuid or self._connected_account_id}
-        resp = await self._http.post(url, json=body)
+        url = f"{self._proxy_url}/v3/trigger_instances/manage/{trigger_id}"
+        body = {"enabled": False}
+        resp = await self._http.patch(url, json=body)
         return self._handle_response(resp, f"trigger_disable:{trigger_id}")
 
     async def trigger_delete(self, trigger_id: str) -> dict[str, Any]:
