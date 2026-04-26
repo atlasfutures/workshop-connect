@@ -63,11 +63,55 @@ class TestAsyncExecute:
             body = json.loads(request.content)
             assert body["connectedAccountId"] == "00000000-0000-0000-0000-000000000001"
             assert body["arguments"] == {"userId": "me"}
-            return httpx.Response(200, json={"data": {"email": "test@example.com"}})
+            return httpx.Response(
+                200,
+                json={
+                    "data": {"email": "test@example.com"},
+                    "successful": True,
+                    "error": None,
+                    "log_id": "log_test",
+                },
+            )
 
         c = self._make_client(handler)
         result = await c.execute("GMAIL_GET_PROFILE", {"userId": "me"})
-        assert result["data"]["email"] == "test@example.com"
+        # execute() unwraps — returns data directly
+        assert result["email"] == "test@example.com"
+        await c.close()
+
+    async def test_execute_raw_returns_envelope(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "data": {"email": "test@example.com"},
+                    "successful": True,
+                    "error": None,
+                    "log_id": "log_test",
+                },
+            )
+
+        c = self._make_client(handler)
+        raw = await c.execute_raw("GMAIL_GET_PROFILE", {"userId": "me"})
+        assert raw["successful"] is True
+        assert raw["data"]["email"] == "test@example.com"
+        await c.close()
+
+    async def test_execute_raises_on_unsuccessful(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "data": {},
+                    "successful": False,
+                    "error": {"message": "Rate limit exceeded"},
+                    "log_id": "log_fail",
+                },
+            )
+
+        c = self._make_client(handler)
+        with pytest.raises(ActionError, match="Rate limit exceeded"):
+            await c.execute("GMAIL_SEND_EMAIL", {})
         await c.close()
 
     async def test_error_raises_action_error(self) -> None:
@@ -83,17 +127,24 @@ class TestAsyncExecute:
         def handler(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.content)
             assert body["arguments"] == {}
-            return httpx.Response(200, json={"ok": True})
+            return httpx.Response(
+                200,
+                json={"data": {"status": "ok"}, "successful": True, "error": None},
+            )
 
         c = self._make_client(handler)
-        await c.execute("SOME_ACTION")
+        result = await c.execute("SOME_ACTION")
+        assert result["status"] == "ok"
         await c.close()
 
     async def test_entity_id_override(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.content)
             assert body["entity_id"] == "custom_entity"
-            return httpx.Response(200, json={"ok": True})
+            return httpx.Response(
+                200,
+                json={"data": {"ok": True}, "successful": True, "error": None},
+            )
 
         c = self._make_client(handler)
         await c.execute("SOME_ACTION", {}, entity_id="custom_entity")
@@ -174,7 +225,10 @@ class TestAsyncAccountResolution:
         def handler(request: httpx.Request) -> httpx.Response:
             if "/v3/connected_accounts/" in str(request.url) and request.method == "GET":
                 return httpx.Response(200, json=self._ACCOUNT_RESPONSE)
-            return httpx.Response(200, json={"ok": True})
+            return httpx.Response(
+                200,
+                json={"data": {"ok": True}, "successful": True, "error": None},
+            )
 
         c = AsyncConnectorClient(
             proxy_url="https://proxy.test",
@@ -197,7 +251,10 @@ class TestAsyncAccountResolution:
             if "/v3/connected_accounts/" in str(request.url):
                 call_count += 1
                 return httpx.Response(200, json=self._ACCOUNT_RESPONSE)
-            return httpx.Response(200, json={"ok": True})
+            return httpx.Response(
+                200,
+                json={"data": {"ok": True}, "successful": True, "error": None},
+            )
 
         c = AsyncConnectorClient(
             proxy_url="https://proxy.test",

@@ -12,9 +12,9 @@ from typing import Any
 import httpx
 
 from .connector import Connector
-from .errors import ActionError, AuthError
+from .errors import ActionError, AuthError, ConnectorNotFoundError
 
-_USER_AGENT = "workshop-connect/0.1"
+_USER_AGENT = "workshop-connect/0.2"
 _TIMEOUT = 60.0
 _HTTP_ERROR_THRESHOLD = 400
 
@@ -74,9 +74,14 @@ class ConnectorClient:
         """Resolve a connector by toolkit name and return a client.
 
         Scans the environment for a matching connector prefix
-        and related env vars.
+        and related env vars.  In deployed apps (where connector
+        env vars are absent), falls back to resolving credentials
+        via the Workshop backend using the deployment token.
         """
-        conn = Connector.from_env(toolkit=name)
+        try:
+            conn = Connector.from_env(toolkit=name)
+        except ConnectorNotFoundError:
+            return cls.from_deployment(toolkit=name)
         return cls(
             proxy_url=conn.proxy_url,
             api_key=conn.api_key,
@@ -91,6 +96,39 @@ class ConnectorClient:
             proxy_url=conn.proxy_url,
             api_key=conn.api_key,
             connected_account_id=conn.connected_account_id,
+        )
+
+    @classmethod
+    def from_deployment(
+        cls,
+        *,
+        connector_id: str | None = None,
+        toolkit: str | None = None,
+    ) -> ConnectorClient:
+        """Resolve a Composio connector via the Workshop backend.
+
+        For deployed apps where connector env vars are not injected.
+        Requires ``WORKSHOP_DEPLOYMENT_TOKEN`` and
+        ``WORKSHOP_BACKEND_URL`` in the environment.
+
+        Parameters
+        ----------
+        connector_id:
+            Firestore connector document ID.  If omitted, resolved
+            from ``{PREFIX}_CONNECTOR_ID`` env vars.
+        toolkit:
+            Composio toolkit slug (e.g. ``"gmail"``).  Used to find
+            the right connector when multiple are available.
+        """
+        from ._deployment import resolve_composio_credentials
+
+        creds = resolve_composio_credentials(
+            connector_id=connector_id, toolkit=toolkit,
+        )
+        return cls(
+            proxy_url=creds["proxy_url"],
+            api_key=creds["api_key"],
+            connected_account_id=creds["connected_account_id"],
         )
 
     # ------------------------------------------------------------------
@@ -120,12 +158,30 @@ class ConnectorClient:
         Returns
         -------
         dict
-            Parsed JSON response.
+            The unwrapped action response data.  The Composio
+            envelope (``successful``, ``error``, ``log_id``) is
+            stripped — only ``data`` is returned.
 
         Raises
         ------
         ActionError
-            On HTTP 4xx/5xx from the proxy.
+            On HTTP 4xx/5xx from the proxy, or when the Composio
+            response indicates ``successful`` is not true.
+        """
+        raw = self.execute_raw(action, arguments, entity_id=entity_id)
+        return self._unwrap(raw, action)
+
+    def execute_raw(
+        self,
+        action: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        entity_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Execute and return the full Composio response envelope.
+
+        Unlike :meth:`execute`, this returns the raw JSON including
+        ``successful``, ``error``, ``data``, and ``log_id`` keys.
         """
         self._ensure_account_details()
         eid = entity_id or self._resolved_entity_id or ""
@@ -239,3 +295,38 @@ class ConnectorClient:
             return resp.json()
         except json.JSONDecodeError:
             return {"raw": resp.text}
+
+    @staticmethod
+    def _unwrap(raw: Any, context: str) -> dict[str, Any]:
+        """Extract ``data`` from the Composio v3.1 response envelope.
+
+        The v3.1 execute endpoint returns::
+
+            {"data": {...}, "successful": true, "error": null, "log_id": "..."}
+
+        This method returns ``data`` on success and raises
+        :class:`ActionError` when ``successful`` is not true.
+        """
+        if not isinstance(raw, dict):
+            return raw  # type: ignore[return-value]
+
+        # Check for explicit failure
+        successful = raw.get("successful")
+        if successful is False or (
+            successful is None and "error" in raw and raw["error"]
+        ):
+            err = raw.get("error") or {}
+            msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            raise ActionError(
+                f"Action {context} failed: {msg}",
+                status_code=err.get("status", 0) if isinstance(err, dict) else 0,
+                response_body=json.dumps(raw.get("error", ""))[:500],
+            )
+
+        # Unwrap data
+        data = raw.get("data")
+        if data is not None:
+            return data  # type: ignore[return-value]
+
+        # No envelope — return as-is (non-execute endpoints)
+        return raw

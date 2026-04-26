@@ -16,6 +16,13 @@ from __future__ import annotations
 from .async_client import AsyncConnectorClient
 from .client import ConnectorClient
 from .connector import Connector
-from .errors import ConnectorError
+from .errors import ActionError, ConnectorError, ConnectorNotFoundError
 
-__all__ = ["AsyncConnectorClient", "ConnectorClient", "Connector", "ConnectorError"]
+__all__ = [
+    "ActionError",
+    "AsyncConnectorClient",
+    "ConnectorClient",
+    "Connector",
+    "ConnectorError",
+    "ConnectorNotFoundError",
+]

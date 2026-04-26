@@ -77,11 +77,63 @@ class TestExecute:
             assert body["entity_id"] == "user_123"
             assert body["arguments"] == {"userId": "me"}
             assert request.headers["authorization"] == "Bearer test_api_key"
-            return httpx.Response(200, json={"data": {"email": "test@example.com"}})
+            return httpx.Response(
+                200,
+                json={
+                    "data": {"email": "test@example.com"},
+                    "successful": True,
+                    "error": None,
+                    "log_id": "log_test",
+                },
+            )
 
         c = self._make_client(httpx.MockTransport(handler))
         result = c.execute("GMAIL_GET_PROFILE", {"userId": "me"})
-        assert result["data"]["email"] == "test@example.com"
+        # execute() unwraps — returns data directly
+        assert result["email"] == "test@example.com"
+        c.close()
+
+    def test_execute_raw_returns_envelope(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            acct = self._account_or_execute(request)
+            if acct:
+                return acct
+            return httpx.Response(
+                200,
+                json={
+                    "data": {"email": "test@example.com"},
+                    "successful": True,
+                    "error": None,
+                    "log_id": "log_test",
+                },
+            )
+
+        c = self._make_client(httpx.MockTransport(handler))
+        raw = c.execute_raw("GMAIL_GET_PROFILE", {"userId": "me"})
+        # execute_raw() returns the full envelope
+        assert raw["successful"] is True
+        assert raw["data"]["email"] == "test@example.com"
+        assert raw["log_id"] == "log_test"
+        c.close()
+
+    def test_execute_raises_on_unsuccessful(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            acct = self._account_or_execute(request)
+            if acct:
+                return acct
+            return httpx.Response(
+                200,
+                json={
+                    "data": {},
+                    "successful": False,
+                    "error": {"message": "Rate limit exceeded", "status": 429},
+                    "log_id": "log_fail",
+                },
+            )
+
+        c = self._make_client(httpx.MockTransport(handler))
+        with pytest.raises(ActionError, match="Rate limit exceeded"):
+            c.execute("GMAIL_SEND_EMAIL", {})
         c.close()
 
     def test_error_raises_action_error(self) -> None:
@@ -103,10 +155,14 @@ class TestExecute:
                 return acct
             body = json.loads(request.content)
             assert body["arguments"] == {}
-            return httpx.Response(200, json={"ok": True})
+            return httpx.Response(
+                200,
+                json={"data": {"status": "ok"}, "successful": True, "error": None},
+            )
 
         c = self._make_client(httpx.MockTransport(handler))
-        c.execute("SOME_ACTION")
+        result = c.execute("SOME_ACTION")
+        assert result["status"] == "ok"
         c.close()
 
     def test_entity_id_override(self) -> None:
@@ -118,7 +174,10 @@ class TestExecute:
                 return acct
             body = json.loads(request.content)
             assert body["entity_id"] == "custom_entity"
-            return httpx.Response(200, json={"ok": True})
+            return httpx.Response(
+                200,
+                json={"data": {"ok": True}, "successful": True, "error": None},
+            )
 
         c = self._make_client(httpx.MockTransport(handler))
         c.execute("SOME_ACTION", entity_id="custom_entity")
@@ -135,7 +194,10 @@ class TestExecute:
             ):
                 resolve_count += 1
                 return httpx.Response(200, json=self._ACCOUNT_RESPONSE)
-            return httpx.Response(200, json={"ok": True})
+            return httpx.Response(
+                200,
+                json={"data": {"ok": True}, "successful": True, "error": None},
+            )
 
         c = self._make_client(httpx.MockTransport(handler))
         c.execute("ACTION_1")
@@ -214,5 +276,6 @@ class TestIntegration:
     def test_gmail_get_profile(self) -> None:
         client = ConnectorClient.from_connector("gmail")
         result = client.execute("GMAIL_GET_PROFILE", {"userId": "me"})
-        assert "data" in result or "response_data" in result
+        # execute() unwraps — data is returned directly
+        assert "emailAddress" in result or "email" in result
         client.close()

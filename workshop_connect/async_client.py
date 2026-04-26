@@ -12,9 +12,9 @@ from typing import Any
 import httpx
 
 from .connector import Connector
-from .errors import ActionError, AuthError
+from .errors import ActionError, AuthError, ConnectorNotFoundError
 
-_USER_AGENT = "workshop-connect/0.1"
+_USER_AGENT = "workshop-connect/0.2"
 _TIMEOUT = 60.0
 _HTTP_ERROR_THRESHOLD = 400
 
@@ -71,8 +71,14 @@ class AsyncConnectorClient:
 
     @classmethod
     def from_connector(cls, name: str) -> AsyncConnectorClient:
-        """Resolve a connector by toolkit name and return an async client."""
-        conn = Connector.from_env(toolkit=name)
+        """Resolve a connector by toolkit name and return an async client.
+
+        Falls back to deployment resolution if no env vars found.
+        """
+        try:
+            conn = Connector.from_env(toolkit=name)
+        except ConnectorNotFoundError:
+            return cls.from_deployment(toolkit=name)
         return cls(
             proxy_url=conn.proxy_url,
             api_key=conn.api_key,
@@ -89,6 +95,30 @@ class AsyncConnectorClient:
             connected_account_id=conn.connected_account_id,
         )
 
+    @classmethod
+    def from_deployment(
+        cls,
+        *,
+        connector_id: str | None = None,
+        toolkit: str | None = None,
+    ) -> AsyncConnectorClient:
+        """Resolve a Composio connector via the Workshop backend.
+
+        For deployed apps where connector env vars are not injected.
+        Requires ``WORKSHOP_DEPLOYMENT_TOKEN`` and
+        ``WORKSHOP_BACKEND_URL`` in the environment.
+        """
+        from ._deployment import resolve_composio_credentials
+
+        creds = resolve_composio_credentials(
+            connector_id=connector_id, toolkit=toolkit,
+        )
+        return cls(
+            proxy_url=creds["proxy_url"],
+            api_key=creds["api_key"],
+            connected_account_id=creds["connected_account_id"],
+        )
+
     # ------------------------------------------------------------------
     # Action execution
     # ------------------------------------------------------------------
@@ -102,25 +132,23 @@ class AsyncConnectorClient:
     ) -> dict[str, Any]:
         """Execute a connector action via the v3.1 tools API.
 
-        Parameters
-        ----------
-        action:
-            Action slug, e.g. ``"GMAIL_GET_PROFILE"``.
-        arguments:
-            Action parameters as a dict.
-        entity_id:
-            Optional entity ID override.
+        Returns the unwrapped action response data.  The Composio
+        envelope is stripped — only ``data`` is returned.
 
-        Returns
-        -------
-        dict
-            Parsed JSON response.
-
-        Raises
-        ------
-        ActionError
-            On HTTP 4xx/5xx from the proxy.
+        Raises :class:`ActionError` on HTTP errors or when the
+        Composio response indicates failure.
         """
+        raw = await self.execute_raw(action, arguments, entity_id=entity_id)
+        return self._unwrap(raw, action)
+
+    async def execute_raw(
+        self,
+        action: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        entity_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Execute and return the full Composio response envelope."""
         await self._ensure_account_details()
         eid = entity_id or self._resolved_entity_id or ""
         url = f"{self._proxy_url}/v3.1/tools/execute/{action}"
@@ -222,3 +250,27 @@ class AsyncConnectorClient:
             return resp.json()
         except json.JSONDecodeError:
             return {"raw": resp.text}
+
+    @staticmethod
+    def _unwrap(raw: Any, context: str) -> dict[str, Any]:
+        """Extract ``data`` from the Composio v3.1 response envelope."""
+        if not isinstance(raw, dict):
+            return raw  # type: ignore[return-value]
+
+        successful = raw.get("successful")
+        if successful is False or (
+            successful is None and "error" in raw and raw["error"]
+        ):
+            err = raw.get("error") or {}
+            msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            raise ActionError(
+                f"Action {context} failed: {msg}",
+                status_code=err.get("status", 0) if isinstance(err, dict) else 0,
+                response_body=json.dumps(raw.get("error", ""))[:500],
+            )
+
+        data = raw.get("data")
+        if data is not None:
+            return data  # type: ignore[return-value]
+
+        return raw
