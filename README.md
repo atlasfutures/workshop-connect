@@ -61,3 +61,7 @@ Each connected account injects three environment variables:
 ## License
 
 Apache-2.0
+
+## Contributing
+
+Changes to `main` go through a pull request with a passing test matrix and one approval.
